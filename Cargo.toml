@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["Phaiax <phaiax-git@invisibletower.de>"]
 
 [dependencies]
+image = "0.10.0"
