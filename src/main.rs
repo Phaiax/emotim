@@ -1,44 +1,53 @@
+#![feature(test)]
+
 extern crate image;
+extern crate test;
 
 mod emoticons;
+mod hsv;
 
-use image::{Pixel, Rgb, GenericImage, DynamicImage};
+use image::{GenericImage, DynamicImage};
 use std::path::{Path};
 use std::rc::Rc;
+
+
 fn read_input_image() -> DynamicImage {
     let inputimagepath = Path::new("assets/input/Munch_Schrei_6.jpg");
     let img = image::open(&inputimagepath).unwrap();
     img
 }
 
-struct Emoimage {
-    width : u32,
-    height : u32,
-    emopixels : Vec<Rc<emoticons::Emoticon>>,
+pub struct Emoimage {
+    pub width : u32,
+    pub height : u32,
+    pub emopixels : Vec<Rc<emoticons::Emoticon>>,
 }
 
 fn find_best_smileys(img : &mut DynamicImage, frac : u32, emos : &Vec<Rc<emoticons::Emoticon>>) -> Emoimage {
     let height = img.height() / frac;
     let width = img.width() / frac;
-    let pxheight = img.height();
-    let pxwidth = img.width();
+    //let pxheight = img.height();
+    //let pxwidth = img.width();
     let mut out = Vec::with_capacity(width as usize * height as usize);
-    let raw = img.raw_pixels();
+    //let raw = img.raw_pixels();
 
 
-    for w in 0..width {
-        for h in 0..height {
+
+    for h in 0..height {
+        for w in 0..width {
+            println!("{} {}", h, w);
 
             let subimg = img.sub_image(w * frac, h * frac, frac, frac);
-            let meansubimg = emoticons::mean(&subimg);
+            let subimghsv = hsv::HsvImage::from_image(&subimg);
+            let subimghist = subimghsv.reduce_dynamic().histogram();
 
             let mut closest = None;
-            let mut distance = 1000;
+            let mut similarity = 0.0;
             for e in emos {
-                let edist = e.distance(meansubimg);
-                if edist < distance {
+                let esim = e.hist.similarity2(&subimghist);
+                if esim > similarity {
                     closest = Some(e.clone());
-                    distance = edist;
+                    similarity = esim;
                 }
             }
             //let e = all[i as usize % all.len()].clone();
@@ -79,4 +88,25 @@ fn main()  {
     emoimg.print();
 
 
+}
+
+#[cfg(test)]
+mod tests {
+    //use super::*;
+    use test::Bencher;
+    use image::{DynamicImage};
+    use image;
+    use std::path::Path;
+
+
+    fn open_image() -> DynamicImage {
+        let inputimagepath = Path::new("assets/emoticons2/00a9.png");
+        let img = image::open(&inputimagepath).unwrap();
+        img
+    }
+
+    #[bench]
+    fn bench_open_image(b: &mut Bencher) {
+        b.iter(|| open_image());
+    }
 }

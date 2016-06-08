@@ -1,50 +1,35 @@
 
 use image;
-use image::{Pixel, Rgb, Rgba, GenericImage, DynamicImage};
+use image::{DynamicImage};
 use std::rc::Rc;
 
 use std::path::{Path, PathBuf};
 use std::char;
+use std::fs::File;
 
-
-
+use hsv;
 
 pub struct Emoticon {
-    pub mean_color : Rgb<u8>,
     pub img: DynamicImage,
     pub unicode : char,
     pub unicode2 : Option<char>,
+    pub hsv : hsv::HsvImage,
+    pub hist : hsv::ReducedHsvHistogram,
 }
 
 pub fn read_emoticons() -> Vec<Rc<Emoticon>> {
     let emotifolder = Path::new("assets/emoticons2");
     let mut emoticons = Vec::with_capacity(1700);
-    for direntry in emotifolder.read_dir().unwrap().take(100) {
+    for (i, direntry) in emotifolder.read_dir().unwrap().enumerate() {
         let direntry = direntry.unwrap();
         emoticons.push(Rc::new(Emoticon::read_emoticon(direntry.path(),
                                                        direntry.file_name().into_string().unwrap())));
+        println!("{}", i);
     }
+    println!("");
     emoticons
 }
 
-pub fn mean<T>(img : &T) -> Rgb<u8>
-    where T : GenericImage<Pixel = Rgba<u8>> {
-    let mut mean = [0u32, 0, 0];
-    let mut i = 0;
-    for (_,_,pixel) in img.pixels() {
-        let (r, g, b, a) = pixel.channels4();
-        if a == 255 {
-            mean[0] += r as u32;
-            mean[1] += g as u32;
-            mean[2] += b as u32;
-            i += 1;
-        }
-    }
-    mean[0] /= i;
-    mean[1] /= i;
-    mean[2] /= i;
-    Rgb::from_channels(mean[0] as u8, mean[1] as u8, mean[2] as u8, 0)
-}
 
 impl Emoticon {
 
@@ -56,11 +41,22 @@ impl Emoticon {
 
     fn read_emoticon(path : PathBuf, filename : String) -> Emoticon {
         let img = image::open(&path).unwrap();
+        //let blurred = img.blur(6.0);
+
+
+        let hsv = hsv::HsvImage::from_image(&img);
+        let hsvreduced = hsv.reduce_dynamic();
+        let hist = hsvreduced.histogram();
+
+        let ref mut fout = File::create(&Path::new(&format!("assets/blurred/{}", filename))).unwrap();
+        let _ = hsvreduced.to_rgba().save(fout, image::PNG).unwrap();
+
         let mut ret = Emoticon {
-            mean_color : mean(&img),
             img : img,
             unicode : 'c',
             unicode2 : None,
+            hsv : hsv,
+            hist : hist,
         };
         if filename.contains("-") {
             let mut split = filename.split(|c| c == '-' || c == '.');
@@ -72,11 +68,37 @@ impl Emoticon {
         ret
     }
 
-    pub fn distance(&self, to : Rgb<u8>) -> u32 {
-        let (r1, g1, b1, _) = to.channels4();
-        let (r2, g2, b2, _) = self.mean_color.channels4();
-        ((r1 as i32 - r2 as i32).abs() +
-        (g1 as i32 - g2 as i32).abs() +
-        (b1 as i32 - b2 as i32).abs() ) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::Bencher;
+    use std::path::PathBuf;
+    use std::rc::Rc;
+
+
+    fn open_emoticon() -> Emoticon {
+        let inputimagepath = PathBuf::from("assets/emoticons2/00a9.png");
+        let img = Emoticon::read_emoticon(inputimagepath, "00a9.png".to_string());
+        img
+    }
+
+    #[bench]
+    fn bench_open_emoticon(b: &mut Bencher) {
+        b.iter(|| open_emoticon());
+    }
+
+    fn open_emoticon_rc() -> Rc<Emoticon> {
+        let inputimagepath = PathBuf::from("assets/emoticons2/00a9.png");
+        Rc::new(Emoticon::read_emoticon(inputimagepath,
+                                        "00a9.png".to_string()))
+    }
+
+    #[bench]
+    fn bench_open_emoticon_rc(b: &mut Bencher) {
+        b.iter(|| open_emoticon_rc());
     }
 }
+
+
