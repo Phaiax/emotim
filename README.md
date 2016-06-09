@@ -67,7 +67,9 @@ This leaves a total of 16^3 = 4096 distinct colors.
 Reduced depth:
 ![RGB test image](out/hsltest_convert_and_back_reduced.png)
 
-For each emoticon and each little square in the input image, the programm calculates the 3d histogram of the reduced depth version. It then smoothes the histogram using a 3d gaussian kernel. Now it only needs to compare the histograms. I implemented two different algorithms.
+For each emoticon and each little square in the input image, the programm calculates the 3d histogram of the reduced depth version. It then smoothes the histogram using a 3d gaussian kernel. [Here](out/hist_1f30f.txt) can you see an example histogram of the earth icon. Each big square is one layer slice of the normally 3d matrix. Imagine the big squares layered above each other. You see two areas where the colors accumulate. One will be the blue colors of the ocean, one the green colors of the land. (Transparent pixels are ignored).
+
+Now it only needs to compare the histograms. I implemented two different algorithms.
 
 The first one is simple histogram correlation. The emoticon with the highest correlation is chosen. This gives quite good results (see example from above) but it takes time (maybe 10 seconds per 1000^2 pixel image). The only problem here is that a mostly red emoticon is chosen for black areas in the input image.
 
