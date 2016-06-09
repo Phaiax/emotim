@@ -7,17 +7,17 @@ Library and program to convert normal images into emoticon versions by replacing
 Example
 -------
 
-Original:
+Original: <br>
 ![Munch - Der Schrei](assets/input/schrei.jpg)
 
-Emotoconized:
+Emotoconized: <br>
 <img src="out/schrei.png" width="300" alt="Munch - Der Schrei">
 
 As text:
-🐻🈵🅰🅰🅰📦📦🐉📦🐻🚪🐻🏉🏉🏉🉑🎃🉑🐻🐻📦🐻 \
-🏉🏉🏉🐻🏉🏉🉑🚪🚪🚪🏉📦🐊🏉🏉🏉🏉🏉🏉🐻🐻🐻 \
-🅰🅰🏉🏉🏉🏉🏉🇨🇳🇨🇳🎃🈵🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🚪 /
-🐻🅰🈵🈵🈵🏉🈵🈵🇨🇳🇨🇳🇨🇳🇨🇳🉑🌞🌞📙📙📙📙🎃🎃🏉 /
+🐻🈵🅰🅰🅰📦📦🐉📦🐻🚪🐻🏉🏉🏉🉑🎃🉑🐻🐻📦🐻 <br>
+🏉🏉🏉🐻🏉🏉🉑🚪🚪🚪🏉📦🐊🏉🏉🏉🏉🏉🏉🐻🐻🐻 <br>
+🅰🅰🏉🏉🏉🏉🏉🇨🇳🇨🇳🎃🈵🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🚪 <br>
+🐻🅰🈵🈵🈵🏉🈵🈵🇨🇳🇨🇳🇨🇳🇨🇳🉑🌞🌞📙📙📙📙🎃🎃🏉 <br>
 🎃🏉🏉🚪🐻🉑🏉🏉📙📙📙🌞🌞🌞🏉🏉🏉🉑🉑📙📙📙
 💩🏉🇨🇳📙🌞🉑🉑🉑🉑🉑📙🌞📔📔🆚🇨🇳🇨🇳🇨🇳🎃🇨🇳🇨🇳🏉
 🅰🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🇨🇳🔴🌞🌝🌝🇨🇳🇨🇳🇨🇳📙📙📙📙📙📙📙🏉
