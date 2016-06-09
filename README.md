@@ -53,7 +53,7 @@ emoticon for that square.
 The programm first reads in all emoticons. It then converts the color space. A color space describes how a certain color is represented with numbers. Normal images use RGB color space with respectively one numerical percentage value for the red, one for the green and one for the blue portion of a pixel. (And one additional number called alpha for the transparency) . The emoticons are transfered into HCL color space. Instead of red, green and blue, it uses the metrics color angle (H, hue), chroma (C, similar to saturation of the color) and lightness (L). This allows to calculate the distance of colors.
 
 
-The conversion is not looseless. The first image is the original image, the second one converted to HCL and back.
+The conversion is not looseless. The first image is the original image, the second one converted to HCL and back. If you look closely, you can spot the difference.
 
 ![RGB test image](assets/test/hsvtest.png)
 ![RGB test image](out/hsltest_convert_and_back.png)
