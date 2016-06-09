@@ -3,9 +3,10 @@
 //!
 //! ```
 //!     use std::path::Path;
+//!     use emotim::*;
 //!     let emos = read_emoticons();
 //!     let mut ii = read_input_image("Munch_Schrei_6.jpg");
-//!     let emoimg = Emoimage::new(&mut ii, 20, &emos, ComparisationMethod::Maxima);
+//!     let emoimg = Emoimage::new(&mut ii, 20, &emos, ComparisationMethod::Correlation);
 //!     println!("{}", emoimg);
 //!     emoimg.save(&Path::new("out/munch_max.png"));
 //! ```
@@ -78,7 +79,7 @@ impl Emoimage {
                 let subimghist = subimghsv.reduce_dynamic().histogram();
 
                 let mut the_chosen_one = None;
-                let mut highest_similarity = 0.0;
+                let mut highest_similarity = -10000.0;
                 for e in emoticons {
                     let similarity = match method {
                         ComparisationMethod::Correlation => e.hist.similarity_by_correlation(&subimghist),

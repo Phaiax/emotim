@@ -15,7 +15,10 @@
 
 use image::{Pixel, Rgba, GenericImage, DynamicImage, RgbaImage};
 use std::f32;
+use std::fmt;
 
+const MAX_NUM_OF_MAXIMA : usize = 2;
+const MIN_VAL_OF_MAXIMA : f32 = 1.;
 
 /// HSL pixel
 ///
@@ -38,7 +41,7 @@ use std::f32;
 pub struct Hsl {
     /// Hue (color angle: 0: red, 255: red, 128: turquoise, 64: green)
     pub h2 : u8,
-    /// Chroma (Saturation)
+    /// Chroma ( not exact Saturation)
     pub c2 : u8,
     /// Lightness (0: black, 255: white)
     pub l : u8,
@@ -52,46 +55,67 @@ impl Hsl {
         Hsl {h2 : h2, c2 : c2, l : l , a : a }
     }
 
-    /// Calculates a color distance. The uses formula has apparent problems.
-    ///
-    /// TODO:
-    ///
-    /// * hue needs wrapping
-    /// * hues influence must depend on chroma and lightness
-    pub fn distance(&self, other : &Hsl) -> u32 {
-        ((self.h2 as i32 - other.h2 as i32).abs() +
-        (self.c2 as i32 - other.c2 as i32).abs() +
-        (self.l as i32 - other.l as i32).abs() +
-        (self.a as i32 - other.a as i32).abs() ) as u32
+    /// Creates a new pixel from the given values. (angle 0-360, %, %, 0-255)
+    pub fn from_angle_and_percentages(h : f32, s : f32, l : f32, a : u8) -> Hsl {
+        Hsl::new((h / 360. * 255.) as u8,
+                 (Hsl::saturation_to_chroma(s, l) / 100. * 255.) as u8,
+                 (l / 100. * 255.) as u8,
+                 a)
     }
 
-    /// Converts this pixel back into RGBA color space. The conversion is not loseless.
-    /// This works on full depth `Hsl` pixels.
-    pub fn to_rgba(&self) -> Rgba<u8> {
-        let h_tick = self.h2 as f32 / (256.0/6.0);
-        let x = self.c2 as f32 * ( 1.0 - (h_tick % 2.0  - 1.0).abs());
-        let (mut r1, mut g1, mut b1) = if 0.0 <= h_tick && h_tick < 1.0 { ( self.c2 as f32, x, 0.0) }
-                      else if 1.0 <= h_tick && h_tick < 2.0 { ( x, self.c2 as f32, 0.0) }
-                      else if 2.0 <= h_tick && h_tick < 3.0 { ( 0.0, self.c2 as f32, x) }
-                      else if 3.0 <= h_tick && h_tick < 4.0 { ( 0.0, x, self.c2 as f32) }
-                      else if 4.0 <= h_tick && h_tick < 5.0 { ( x, 0.0, self.c2 as f32) }
-                      else if 5.0 <= h_tick && h_tick <= 6.0 { ( self.c2 as f32, 0.0, x) }
-                      else { (0.0, 0.0, 0.0) };
-        let m = self.l as f32 - 0.5 * self.c2 as f32;
-        // Prevent wrapping
-        if m < 0. {
-            if r1 < -m { r1 = -m };
-            if g1 < -m { g1 = -m };
-            if b1 < -m { b1 = -m };
-        }
-        // Prevent wrapping
-        if m > 0. {
-            if r1 + m > 255. { r1 = 255.-m };
-            if g1 + m > 255. { g1 = 255.-m };
-            if b1 + m > 255. { b1 = 255.-m };
-        }
-        Rgba::from_channels((r1+m) as u8, (g1+m) as u8, (b1+m) as u8, self.a)
+    /// Return saturation (since c2 is chroma, not saturation)
+    pub fn saturation(&self) -> u8 {
+        (self.c2 as f32 / ( 1. - (2. * (self.l as f32) - 1.).abs() )) as u8
     }
+
+    /// Saturation to croma, sat, l in percent
+    pub fn saturation_to_chroma(sat : f32, l : f32) -> f32 {
+        sat * ( 1. - (2. * (l/100.) - 1.).abs() )
+    }
+
+    /// Calculates a color similarity. (When this Hsl is uses reduced color depth)
+    ///
+    /// Uses the formulas from [this paper](http://www.eusflat.org/proceedings/IFSA-EUSFLAT_2009/pdf/tema_0048.pdf).
+    ///
+    pub fn similarity(&self, other : &Hsl) -> f32 {
+        let (h_1, c_1, l_1) = self.to_scale_used_by_paper();
+        let (h_2, c_2, l_2) = other.to_scale_used_by_paper();
+
+        // The lower c is, the less sigma_h counts
+        let influence_h_1 = c_1.sin(); // first curve of sin
+        let influence_h_2 = c_2.sin();
+        // The more distant l is from 0, the less sigma_h and sigma_s count
+        let influence_h_1_s_1 = l_1.cos().abs(); // abs agains rounding errors
+        let influence_h_2_s_2 = l_2.cos().abs();
+        let influence_h_s = (influence_h_1_s_1 * influence_h_2_s_2).sqrt();
+
+        let influence_h = (influence_h_1 * influence_h_2 * influence_h_s) / 3.0;
+        let influence_s = influence_h_s / 3.0;
+
+        let sigma_l = 1. - ((l_1 - l_2).abs() / f32::consts::PI);
+        let sigma_s = (c_1 - c_2).cos();
+        let sigma_h = ( (h_1 - h_2) / 2. ).cos().powi(2);
+
+        let sigma = influence_h * sigma_h
+                  + influence_s * sigma_s
+                  + (1.0 - influence_h - influence_s) * sigma_l;
+
+        sigma.powi(3)
+    }
+
+    /// From reduced color depth to scale used by paper:
+    ///
+    /// * hue from minus pi to pi
+    /// * s from 0 to pi/2
+    /// * l from -pi/2 to pi/2 (moved)
+    pub fn to_scale_used_by_paper(&self) -> (f32, f32, f32) {
+        let hue = self.h2 as f32 * f32::consts::PI / 8.;
+        let l = self.l as f32 * f32::consts::PI / 16. - f32::consts::PI / 2.0;
+        assert!(-f32::consts::PI <= l && l <= f32::consts::PI);
+        let c = self.saturation() as f32 * f32::consts::PI / 32.;
+        (hue, c, l)
+    }
+
 
     /// Extend the dynamic (aka color depth) of this pixel by multiplying with 16 (or 255 for alpha).
     pub fn extend_dynamic(&self) -> Hsl {
@@ -110,23 +134,83 @@ impl Hsl {
             a : if self.a > 204 { 1 } else { 0 },
         }
     }
+
+
+    /// Converts this pixel back into RGBA color space. The conversion is not loseless.
+    /// This works on full depth `Hsl` pixels.
+    pub fn to_rgba(&self) -> Rgba<u8> {
+        let h_tick = self.h2 as f32 / (256.0/6.0);
+        //let c = (1. - (2. * (self.l as f32) - 1.).abs() ) * self.c2;
+        let x = self.c2 as f32 * ( 1.0 - (h_tick % 2.0  - 1.0).abs());
+        let (mut r1, mut g1, mut b1) = if 0.0 <= h_tick && h_tick < 1.0 { ( self.c2 as f32, x, 0.0) }
+                      else if 1.0 <= h_tick && h_tick < 2.0 { ( x, self.c2 as f32, 0.0) }
+                      else if 2.0 <= h_tick && h_tick < 3.0 { ( 0.0, self.c2 as f32, x) }
+                      else if 3.0 <= h_tick && h_tick < 4.0 { ( 0.0, x, self.c2 as f32) }
+                      else if 4.0 <= h_tick && h_tick < 5.0 { ( x, 0.0, self.c2 as f32) }
+                      else if 5.0 <= h_tick && h_tick <= 6.0 { ( self.c2 as f32, 0.0, x) }
+                      else { (0.0, 0.0, 0.0) };
+        let m = self.l as f32 - (0.3 * r1 + 0.59 * g1 + 0.11 * b1);
+        // let m = self.l as f32 - 0.5 * self.c2 as f32;
+        // Prevent wrapping
+        if m < 0. {
+            if r1 < -m { r1 = -m };
+            if g1 < -m { g1 = -m };
+            if b1 < -m { b1 = -m };
+        }
+        // Prevent wrapping
+        if m > 0. {
+            if r1 + m > 255. { r1 = 255.-m };
+            if g1 + m > 255. { g1 = 255.-m };
+            if b1 + m > 255. { b1 = 255.-m };
+        }
+        Rgba::from_channels((r1+m) as u8, (g1+m) as u8, (b1+m) as u8, self.a)
+    }
+}
+
+impl fmt::Display for Hsl {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "hsl({:3.0}, {:3.0}%, {:3.0}%)", self.h2 as f32 / 255. * 360.,
+                                                   self.saturation() as f32 / 255. * 100.,
+                                                   self.l as f32 / 255. * 100.)
+    }
 }
 
 impl From<Rgba<u8>> for Hsl {
     /// Converts an `Rgba` pixel into an `Hsl` pixel
     fn from(pixel : Rgba<u8>) -> Hsl {
         let (r, g, b, a) = pixel.channels4();
-        let r = r as f32;
-        let g = g as f32;
-        let b = b as f32;
-        let alpha : f32 = 0.5f32 * ( 2f32 * r - g - b);
-        let beta : f32 = 3f32.sqrt() / 2f32 * (g - b);
-        let max = r.max(g).max(b);
-        let min = r.min(g).min(b);
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        // (alpha,beta) is a vector within the orthogonal axes (x,y) of the hexagon projection.
+        // x (alpha) and red point to 0°
+        // y (beta) points to 90°
+        // green points to 120° and blue to 240°
+        let alpha : f32 = r - 0.5 * (g + b); // range [-1..1]
+        let beta : f32 = (3f32.sqrt() / 2.0) * (g - b); // range[-0.87..0.87]
+        // atan2 returns the angle of the vector (alpha,beta) in the range [-pi..pi]
+        // convert to range [-128..128]. Then move negative part to [128..256]
+        let mut hue : f32 = beta.atan2(alpha) * 128.0 / f32::consts::PI;
+        if hue < 0. { hue += 255.0 }
+        // calc saturation, which is the len of (alpha, beta)
+        let chr = (alpha.powi(2) + beta.powi(2)).sqrt() * 255.;
+        // use the perception based formula for lightness
+        let lig = ( 0.3 * r + 0.59 * g + 0.11 * b ) * 255.;
+        // Other way
+        //let max = r.max(g).max(b);
+        //let min = r.min(g).min(b);
+        //let chr2 = max - min;
+        //let htick = if chr == 0. { 0. } // undefined
+        //            else if max == r { ((g - b) / chr2) % 6. }
+        //            else if max == g { ((b - r) / chr2) + 2. }
+        //            else if max == b { ((g - g) / chr2) + 4. }
+        //            else { panic!("123"); };
+        //let hue1 = htick * (256./6.);
+        //let chr2 = chr2 * 255.;
         Hsl {
-            h2 : (beta.atan2(alpha) * 128.0 / f32::consts::PI) as u8,
-            c2 : ( (alpha.powi(2) + beta.powi(2)).sqrt()  ) as u8,
-            l : ((max + min) / 2.0) as u8,
+            h2 : hue as u8,
+            c2 : chr as u8,
+            l :  lig as u8,
             a : a,
         }
     }
@@ -441,7 +525,7 @@ impl HslHistogram {
     /// Sort the maxima. Smallest first. Only keep 5. Discard little maximas.
     fn sort_maxima(&mut self) {
         self.maxima.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        while self.maxima.len() > 5 || (self.maxima.len() >= 1 && self.maxima.first().unwrap().1 < 1. ) {
+        while self.maxima.len() > MAX_NUM_OF_MAXIMA || (self.maxima.len() >= 1 && self.maxima.first().unwrap().1 < MIN_VAL_OF_MAXIMA ) {
             self.maxima.remove(0);
         }
     }
@@ -452,8 +536,8 @@ impl HslHistogram {
         // compare each with every maxima, multiply by distance and max(max)
         for mymax in &self.maxima {
             for othermax in &other.maxima {
-                let mut d = 5.0 / (mymax.0.distance(&othermax.0) as f32);
-                d *= mymax.1 * othermax.1 / 2.0f32;
+                let mut d = mymax.0.similarity(&othermax.0);
+                d *= (mymax.1 * othermax.1).sqrt().sqrt().sqrt().sqrt().sqrt().sqrt().sqrt().sqrt();
                 distance += d;
             }
         }
@@ -474,22 +558,24 @@ impl HslHistogram {
         correlation
     }
 
-    /// Prints this histogramm to stdout.
-    pub fn print(&self) {
+}
+
+impl fmt::Display for HslHistogram {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
        for ih in 0..16 {
-            print!("\n\nh2:{}\n      l:    ", ih);
+            try!(write!(f, "\n\nh2:{}\n      l:    ", ih));
             for il in 0..16 {
-                print!("{:4}", il);
+                try!(write!(f, "{:4}", il));
             }
             for ic in 0..16 {
-                print!("\n c2:{:4}  # ", ic);
+                try!(write!(f, "\n c2:{:4}  # ", ic));
                 for il in 0..16 {
-                    print!("{:4}", self.smoothed[ih][ic][il]);
+                    try!(write!(f, "{:4}", self.smoothed[ih][ic][il]));
                 }
-                print!(" #");
+                try!(write!(f, " #"));
             }
         }
-        print!("\n");
+        write!(f, "\n")
     }
 }
 
@@ -499,11 +585,12 @@ mod tests {
     use std::path::{Path};
     use std::fs::File;
     use image;
+    use image::Rgba;
 
     #[test]
     fn convert_and_back() {
-        let img = image::open(&Path::new("assets/test/hsltest.png")).unwrap();
-        let mut hsl = HslImage::from_image(&img);
+        let img = image::open(&Path::new("assets/test/hsvtest.png")).unwrap();
+        let hsl = HslImage::from_image(&img);
         let hslreduced = hsl.reduce_dynamic();
         //let hist = hslreduced.histogram();
 
@@ -512,24 +599,29 @@ mod tests {
         println!("\nPx 25,25 @ hsl     {:?}", hsl.get(25, 25));
 
         let ref mut fout = File::create(&Path::new("out/hsltest_convert_and_back_reduced.png")).unwrap();
-        let _ = hslreduced.to_rgba().save(fout, image::PNG).unwrap();
+        let _ = hslreduced.extend_dynamic().to_rgba().save(fout, image::PNG).unwrap();
+    }
 
-        hsl.reduce_dynamic_self();
-        println!("Px 25,25 @ hslred2 {:?}", hsl.get(25, 25));
-        //hsl.get(25, 25).to_rgba_print();
-        let ref mut fout = File::create(&Path::new("out/hsltest_convert_and_back_reduced2.png")).unwrap();
-        let reduced_rgba = hsl.to_rgba();
-        println!("Px 25,25 @ hslred2 {:?}", reduced_rgba.get_pixel(25, 25));
-        let _ = reduced_rgba.save(fout, image::PNG).unwrap();
+    fn check_similarity(a : Hsl, b : Hsl) -> String {
+        let ar = a.reduce_dynamic();
+        let br = b.reduce_dynamic();
+        let sim = ar.similarity(&br);
+        format!("{:1.3}    {} to {}    {} to {} \n", sim, a, b, ar.extend_dynamic(), br.extend_dynamic())
     }
 
     #[test]
     fn distance() {
-        let red = Hsl::new(0, 255, 255, 255).reduce_dynamic();
-        let orange = Hsl::new(20, 255, 255, 255).reduce_dynamic();
-        //let dontknow = Hsl::new(20, 50, 255, 255).reduce_dynamic();
-        println!("red {:?} to orange {:?}: {}", red, orange, red.distance(&orange));
-        assert!(false);
+        let mut s = String::with_capacity(10000);
+        s.push_str(&check_similarity(Hsl::new(0, 255, 255, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(20, 255, 255, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(40, 255, 255, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(20, 100, 255, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(20, 10, 255, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(40, 255, 100, 255), Hsl::new(20, 255, 255, 255)));
+        s.push_str(&check_similarity(Hsl::new(40, 255, 10, 255), Hsl::new(20, 255, 255, 255)));
+        let ref mut fout = File::create(&Path::new("out/similarity.css")).unwrap();
+        use std::io::Write;
+        fout.write_all(&s.as_bytes()).unwrap();
     }
 
 
@@ -539,8 +631,36 @@ mod tests {
         let hsl = HslImage::from_image(&img);
         let hslreduced = hsl.reduce_dynamic();
         let hist = hslreduced.histogram();
-        hist.print();
-        assert!(false);
+        let ref mut fout = File::create(&Path::new("out/hist_1f30f.txt")).unwrap();
+        let mut ascihist = String::with_capacity(25000);
+        use std::fmt::Write as W;
+        write!(ascihist, "{}", hist).unwrap();
+        use std::io::Write;
+        fout.write_all(&ascihist.as_bytes()).unwrap();
+    }
 
+    #[test]
+    fn test_to_scale_used_by_paper() {
+        let (h, s, l) = Hsl::new(10, 0, 0, 0).to_scale_used_by_paper();
+        assert_eq!(h, 10.);
+    }
+
+    fn test_color(test : Hsl, r : u8, g : u8, b : u8) {
+        use image::Pixel;
+        let tolerance = 15;
+        let shall = Rgba::<u8>::from_channels(r, g, b, 255);
+        let (r_orig, g_orig, b_orig, _) = test.to_rgba().channels4();
+        //println!("{}", r - tolerance);
+        println!("{} Hsl->Rgb = rgb({},{},{}) but shall: rgb({},{},{}) (={}) ", test, r_orig, g_orig, b_orig, r, g, b, Hsl::from(shall));
+        assert!(r.saturating_sub(tolerance) <= r_orig && r_orig <= r.saturating_add(tolerance));
+        assert!(g.saturating_sub(tolerance) <= g_orig && g_orig <= g.saturating_add(tolerance));
+        assert!(b.saturating_sub(tolerance) <= b_orig && b_orig <= b.saturating_add(tolerance));
+    }
+
+    #[test]
+    fn rgb_to_hsl() {
+        test_color( Hsl::from_angle_and_percentages(173., 95., 8., 255), 1, 40, 35 );
+        test_color( Hsl::from_angle_and_percentages(115., 54., 36., 255), 50, 141, 42 );
+        assert!(false);
     }
 }
